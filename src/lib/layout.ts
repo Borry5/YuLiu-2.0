@@ -1,7 +1,7 @@
 import { type Node, type Edge, Position } from '@xyflow/react';
 
 // Standard metrics for indented tree layout
-const INDENT_WIDTH = 40; // horizontal indentation per depth level
+const INDENT_WIDTH = 20; // horizontal indentation strictly aligned with parent's bottom handle offset
 const ROW_HEIGHT = 70;   // vertical spacing between rows
 
 export const getLayoutedElements = (nodes: Node[], edges: Edge[], _direction = 'TB') => {

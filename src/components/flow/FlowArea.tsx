@@ -114,7 +114,7 @@ function FlowAreaInner() {
             id: `e${selectedNodeId}-${newNodeId}`,
             source: selectedNodeId,
             target: newNodeId,
-            type: 'smoothstep'
+            type: 'step'
         };
 
         addNode(activeSessionId, newNode);

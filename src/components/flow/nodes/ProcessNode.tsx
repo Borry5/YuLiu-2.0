@@ -77,9 +77,9 @@ export function ProcessNode({ id, data }: NodeProps) {
                 </div>
             </div>
 
-            {/* 隐藏的挂载点，调整 Source 至底部靠左的相对位置，诱导渲染出向下的辅助脊骨 */}
-            <Handle type="target" position={Position.Left} className="w-1 h-1 opacity-0 pointer-events-none" />
-            <Handle type="source" position={Position.Bottom} className="w-1 h-1 opacity-0 pointer-events-none" style={{ left: '1.25rem' }} />
+            {/* 隐藏的挂载点，调整 Source 至底部中心偏左的位置对齐图标 (24px) */}
+            <Handle type="target" position={Position.Left} className="w-1 h-1 opacity-0 pointer-events-none" style={{ top: '22px' }} />
+            <Handle type="source" position={Position.Bottom} className="w-1 h-1 opacity-0 pointer-events-none" style={{ left: '24px' }} />
         </div>
     );
 }

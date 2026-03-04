@@ -1,9 +1,10 @@
 import { useEffect } from 'react';
 import { MainLayout } from "./components/layout/MainLayout";
 import { useAppStore } from './store/useAppStore';
+import { SettingsModal } from './components/chat/SettingsModal';
 
 function App() {
-  const { theme } = useAppStore();
+  const { theme, isSettingsOpen } = useAppStore();
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -16,7 +17,10 @@ function App() {
   // Ideally check system pref, but 'light' default is fine for MVP.
 
   return (
-    <MainLayout />
+    <>
+      <MainLayout />
+      {isSettingsOpen && <SettingsModal />}
+    </>
   );
 }
 

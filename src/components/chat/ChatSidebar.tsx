@@ -2,15 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import { useChatStore, type Message } from '../../store/useChatStore';
 import { useAppStore } from '../../store/useAppStore';
 import { useFlowStore } from '../../store/useFlowStore';
-import { Send, Settings, X, Loader2, Eraser, Paperclip, FileText, Moon, Sun, CheckCircle, XCircle } from 'lucide-react';
-import { streamChat, verifyApiKey, generateSessionTitle } from '../../services/api';
+import { Send, Settings, Loader2, Eraser, Paperclip, FileText, Globe, X } from 'lucide-react';
+import { streamChat, verifyApiKey, generateSessionTitle, API_CONFIG } from '../../services/api';
 import { parseFile } from '../../services/fileParser';
 import ReactMarkdown from 'react-markdown';
 import { useSessionStore } from '../../store/useSessionStore';
+import { toast } from 'sonner';
 
 const SYSTEM_PROMPT = `你是一个名为"语流 (YuLiu)"的智能助手。你的目标是帮助用户处理复杂的思维任务，并将关键信息转化为结构化的思维导图。
 
-**重要规则**：每次回答时，只要你提供了分步指导、知识点列举、框架总结等结构化内容，你**必须**使用 \`[NODE: 核心词汇]\` 的格式将它们提取为图谱节点！
+** 重要规则 **：每次回答时，只要你提供了分步指导、知识点列举、框架总结等结构化内容，你 ** 必须 ** 使用 \`[NODE: 核心词汇]\` 的格式将它们提取为图谱节点！
 我们的系统会自动拦截这些标签并在右侧生成思维导图。请务必大胆、高频地使用 \`[NODE: ...]\` 标签。
 
 **层级规则（极其重要）**：
@@ -32,16 +33,17 @@ export function ChatSidebar() {
     const { getMessages, addMessage, updateMessage } = useChatStore();
     const messages = getMessages(activeSessionId);
 
-    const { apiKey, setApiKey, apiProvider, setApiProvider, theme, setTheme } = useAppStore();
+    const { apiList, activeModelConfig, setActiveModelConfig, isSearchEnabled, setSearchEnabled, setIsSettingsOpen } = useAppStore();
+
+    // Resolve the active key based on activeModelConfig
+    const activeRecord = activeModelConfig ? apiList.find(record => record.id === activeModelConfig.apiKeyId) : null;
+    const apiKey = activeRecord?.key || '';
+    const apiProvider = activeModelConfig?.provider || 'siliconflow';
+    const activeModel = activeModelConfig?.model || '';
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    const [showSettings, setShowSettings] = useState(false);
     const [fileContext, setFileContext] = useState<{ name: string, content: string } | null>(null);
     const [isParsing, setIsParsing] = useState(false);
-
-    // API Verification State
-    const [isVerifying, setIsVerifying] = useState(false);
-    const [verifyStatus, setVerifyStatus] = useState<{ success: boolean; message: string } | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,23 +64,7 @@ export function ChatSidebar() {
         scrollToBottom();
     }, [messages, isLoading]);
 
-    // Clear verify status when apiKey or provider changes
-    useEffect(() => {
-        setVerifyStatus(null);
-    }, [apiKey, apiProvider]);
-
-    const handleVerifyApiKey = async () => {
-        if (!apiKey.trim()) {
-            setVerifyStatus({ success: false, message: '请先输入 API Key' });
-            return;
-        }
-        setIsVerifying(true);
-        setVerifyStatus(null);
-
-        const result = await verifyApiKey(apiKey, apiProvider);
-        setVerifyStatus(result);
-        setIsVerifying(false);
-    };
+    // Helper to extract structural depth level based on Markdown Headings (#)
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -149,12 +135,30 @@ export function ChatSidebar() {
     };
 
     const handleSend = async () => {
-        if (!input.trim() || !apiKey) return;
-
         const currentInput = input;
         if (!activeSessionId || (!currentInput.trim() && !fileContext) || isLoading) return;
+
+        // 1. 本地判空校验
         if (!apiKey) {
-            setShowSettings(true);
+            toast.error('发送错误：未找到有效 API Key，请先点击设置进行配置！');
+            setIsSettingsOpen(true);
+            return;
+        }
+
+        // 2. 发送前置探测 (预检保护) 
+        // 暂时呈现加载中以防止用户乱点
+        setIsLoading(true);
+        try {
+            const isValid = await verifyApiKey(apiKey, apiProvider);
+            if (!isValid) {
+                toast.error(`发送阻断：[${apiProvider}] 拒绝了请求，大概率是 Key 不存在、受限或扣费配额耗尽。`);
+                setIsLoading(false);
+                setIsSettingsOpen(true);
+                return;
+            }
+        } catch (error: any) {
+            toast.error(`发送阻断：服务器连接故障或网络异常，详情: ${error.message || '未知异常'}`);
+            setIsLoading(false);
             return;
         }
 
@@ -212,6 +216,8 @@ export function ChatSidebar() {
                 messages: chatMessages,
                 apiKey,
                 provider: apiProvider,
+                model: activeModel,
+                isSearchEnabled,
                 onChunk: (content) => {
                     fullAssistantResponse = content;
                     // 1. Text to display: hide [NODE:... ] instructions from user view
@@ -328,7 +334,7 @@ export function ChatSidebar() {
                         <Eraser className="h-4 w-4 text-muted-foreground" />
                     </button>
                     <button
-                        onClick={() => setShowSettings(!showSettings)}
+                        onClick={() => setIsSettingsOpen(true)}
                         className="p-2 hover:bg-muted rounded-full transition-colors"
                         title="设置"
                     >
@@ -336,80 +342,6 @@ export function ChatSidebar() {
                     </button>
                 </div>
             </div>
-
-            {/* Settings Panel */}
-            {showSettings && (
-                <div className="absolute top-14 left-0 right-0 bg-card border-b p-4 shadow-lg z-20 animate-in slide-in-from-top-2">
-                    <div className="flex justify-between items-center mb-3">
-                        <h3 className="font-medium text-sm">设置</h3>
-                        <button onClick={() => setShowSettings(false)}><X className="h-4 w-4" /></button>
-                    </div>
-
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                            <label className="text-xs text-muted-foreground block">主题 (Theme)</label>
-                            <button
-                                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                                className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md hover:bg-muted/80 transition-colors text-xs"
-                            >
-                                {theme === 'dark' ? <><Moon className="h-3 w-3" /> Dark</> : <><Sun className="h-3 w-3" /> Light</>}
-                            </button>
-                        </div>
-
-                        <div>
-                            <label className="text-xs text-muted-foreground block mb-1">API Provider</label>
-                            <select
-                                value={apiProvider}
-                                onChange={(e) => setApiProvider(e.target.value as 'deepseek' | 'siliconflow')}
-                                className="w-full text-sm p-2 border rounded bg-background"
-                            >
-                                <option value="deepseek">DeepSeek Official</option>
-                                <option value="siliconflow">SiliconFlow (硅基流动)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="text-xs text-muted-foreground block mb-1">API Key</label>
-                            <input
-                                type="password"
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                placeholder="sk-..."
-                                className="w-full text-sm p-2 border rounded bg-background"
-                            />
-                        </div>
-
-                        {/* Verify API Button */}
-                        <div className="pt-2">
-                            <button
-                                onClick={handleVerifyApiKey}
-                                disabled={isVerifying || !apiKey.trim()}
-                                className="w-full py-2 px-3 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                            >
-                                {isVerifying ? (
-                                    <><Loader2 className="h-4 w-4 animate-spin" /> 验证中...</>
-                                ) : (
-                                    '保存并验证 API'
-                                )}
-                            </button>
-
-                            {/* Verification Status */}
-                            {verifyStatus && (
-                                <div className={`mt-2 p-2 rounded-md text-xs flex items-center gap-2 ${verifyStatus.success
-                                    ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                                    : 'bg-red-500/10 text-red-600 dark:text-red-400'
-                                    }`}>
-                                    {verifyStatus.success ? (
-                                        <CheckCircle className="h-4 w-4 shrink-0" />
-                                    ) : (
-                                        <XCircle className="h-4 w-4 shrink-0" />
-                                    )}
-                                    <span>{verifyStatus.message}</span>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
 
             <div className={`flex-1 overflow-y-auto flex flex-col scroll-smooth ${messages.length === 0 ? 'justify-center p-8' : 'p-4 space-y-4'}`}>
                 {messages.length === 0 ? (
@@ -419,7 +351,7 @@ export function ChatSidebar() {
                             <div className="text-muted-foreground mt-6 text-sm">
                                 <Settings className="h-6 w-6 mx-auto mb-2 opacity-30" />
                                 <p>请先配置 API Key</p>
-                                <button onClick={() => setShowSettings(true)} className="mt-1 text-primary hover:underline">去设置</button>
+                                <button onClick={() => setIsSettingsOpen(true)} className="mt-1 text-primary hover:underline">去设置</button>
                             </div>
                         )}
                     </div>
@@ -495,6 +427,57 @@ export function ChatSidebar() {
 
             {/* Input Area */}
             <div className={`w-full max-w-4xl mx-auto shrink-0 transition-all duration-300 ${messages.length === 0 ? 'mb-20 px-8' : 'p-4 border-t bg-card'}`}>
+                {/* 快捷引擎底座面板 */}
+                <div className="flex items-center gap-2 mb-2 pl-2">
+                    <select
+                        value={activeModelConfig ? `${activeModelConfig.apiKeyId}::${activeModelConfig.model}` : ''}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            const [keyId, modelName] = val.split('::');
+                            const targetRecord = apiList.find(r => r.id === keyId);
+                            if (targetRecord) {
+                                setActiveModelConfig({
+                                    apiKeyId: targetRecord.id,
+                                    provider: targetRecord.provider,
+                                    model: modelName
+                                });
+                            }
+                        }}
+                        className="text-xs p-1 px-2 border rounded-full bg-muted/50 text-muted-foreground outline-none focus:ring-1 focus:ring-primary appearance-none max-w-[200px] truncate cursor-pointer"
+                    >
+                        {apiList.length > 0 ? (
+                            apiList.flatMap(record => {
+                                const config = API_CONFIG[record.provider];
+                                return record.models.map(model => (
+                                    <option key={`${record.id}::${model}`} value={`${record.id}::${model}`}>
+                                        {config?.name || record.provider} - {model}
+                                    </option>
+                                ));
+                            })
+                        ) : (
+                            <option value="" disabled>请先去设置配置 API</option>
+                        )}
+                    </select>
+
+                    <div className="relative group flex items-center">
+                        <button
+                            onClick={() => API_CONFIG[apiProvider].supportsSearch && setSearchEnabled(!isSearchEnabled)}
+                            className={`p-1.5 rounded-full flex items-center gap-1 text-xs transition-colors ${!API_CONFIG[apiProvider].supportsSearch ? 'opacity-40 cursor-not-allowed' : isSearchEnabled ? 'bg-blue-500/10 text-blue-500' : 'text-muted-foreground hover:bg-muted'}`}
+                        >
+                            <Globe className="h-3 w-3" />
+                            {isSearchEnabled && API_CONFIG[apiProvider].supportsSearch && <span>当前已联网</span>}
+                        </button>
+
+                        {/* 强制覆盖展示的自定义 Tooltip */}
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black/80 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                            {!API_CONFIG[apiProvider].supportsSearch ? "该 API 不支持原生联网" : isSearchEnabled ? "原生联网开启" : "原生联网关闭"}
+                            <div className="absolute top-full left-1/2 -translate-x-1/2 border-2 border-transparent border-t-black/80 w-0 h-0"></div>
+                        </div>
+                    </div>
+                    {!apiKey && <span className="text-[10px] text-red-500 ml-auto mr-2">暂未配置该引擎 Key，可能会发送失败</span>}
+                </div>
+
                 <div className={`flex items-center gap-2 bg-background border focus-within:ring-1 focus-within:ring-primary ${messages.length === 0 ? 'rounded-2xl shadow-sm p-2 py-3' : 'rounded-md p-1'}`}>
                     <input
                         type="file"
