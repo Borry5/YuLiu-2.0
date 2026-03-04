@@ -33,6 +33,9 @@ export function ChatSidebar() {
     const { getMessages, addMessage, updateMessage } = useChatStore();
     const messages = getMessages(activeSessionId);
 
+    // We already have activeSessionId from useSessionStore above
+    const { touchSession } = useSessionStore();
+
     const { apiList, activeModelConfig, setActiveModelConfig, isSearchEnabled, setSearchEnabled, setIsSettingsOpen } = useAppStore();
 
     // Resolve the active key based on activeModelConfig
@@ -190,7 +193,6 @@ export function ChatSidebar() {
             timestamp: Date.now(),
         });
 
-        const isFirstMessage = messages.length === 0;
         let fullAssistantResponse = '';
 
         // Stack to track hierarchy: { id, indent }
@@ -204,6 +206,9 @@ export function ChatSidebar() {
 
             // Update history for API context
             updateMessage(activeSessionId, userMsgId, contentToSend);
+
+            // Touch the session so it pops to the top in the list
+            touchSession(activeSessionId);
 
             const chatMessages = [
                 { role: 'system', content: SYSTEM_PROMPT, id: 'system', timestamp: 0 } as Message,
@@ -267,14 +272,6 @@ export function ChatSidebar() {
                 onFinish: () => {
                     if (!isMounted.current) return;
                     setIsLoading(false);
-                    if (isFirstMessage) {
-                        generateSessionTitle(apiKey, apiProvider, contentToSend, fullAssistantResponse)
-                            .then(title => {
-                                if (title) {
-                                    useSessionStore.getState().updateSessionTitle(activeSessionId, title);
-                                }
-                            });
-                    }
                 },
                 onError: (error) => {
                     if (!isMounted.current) return;
@@ -282,6 +279,23 @@ export function ChatSidebar() {
                     updateMessage(activeSessionId, assistantMsgId, `**Error:** ${error.message}`);
                 }
             });
+
+            // 流式对话结束后，根据上下文生成/更新标题
+            if (fullAssistantResponse) {
+                const recentContext = [
+                    ...messages.slice(-6),
+                    realUserMsg,
+                    { role: 'assistant', content: fullAssistantResponse }
+                ];
+                try {
+                    const title = await generateSessionTitle(apiKey, apiProvider, recentContext);
+                    if (title) {
+                        useSessionStore.getState().updateSessionTitle(activeSessionId, title);
+                    }
+                } catch (e) {
+                    console.error('标题生成失败:', e);
+                }
+            }
         } catch (error) {
             console.error('Error in chat:', error);
             if (isMounted.current) {

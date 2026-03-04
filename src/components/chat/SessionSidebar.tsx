@@ -1,13 +1,30 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSessionStore } from '../../store/useSessionStore';
 import { useChatStore } from '../../store/useChatStore';
 import { useFlowStore } from '../../store/useFlowStore';
 import { MessageSquare, Plus, Trash2 } from 'lucide-react';
 
+function formatRelativeTime(timestamp: number): string {
+    const now = Date.now();
+    const diffSec = Math.floor((now - timestamp) / 1000);
+    if (diffSec < 60) return `${Math.max(diffSec, 0)}s`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 1440) return `${diffMin}m`;
+    const diffDay = Math.floor(diffMin / 1440);
+    return `${diffDay}d`;
+}
+
 export function SessionSidebar() {
     const { sessions, activeSessionId, setActiveSession, createSession, deleteSession } = useSessionStore();
     const { resetChat } = useChatStore();
     const { resetFlow } = useFlowStore();
+
+    // Auto-update timestamps visually every minute
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        const timer = setInterval(() => setTick(t => t + 1), 60000);
+        return () => clearInterval(timer);
+    }, []);
 
     // Auto create a session if empty
     useEffect(() => {
@@ -42,27 +59,32 @@ export function SessionSidebar() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-1">
-                {sessions.map(session => (
+                {[...sessions].sort((a, b) => b.updatedAt - a.updatedAt).map(session => (
                     <div
                         key={session.id}
                         onClick={() => setActiveSession(session.id)}
                         className={`group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${activeSessionId === session.id
-                                ? 'bg-muted text-foreground font-medium'
-                                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                            ? 'bg-muted text-foreground font-medium'
+                            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                             }`}
                     >
                         <div className="flex items-center gap-3 overflow-hidden">
                             <MessageSquare className="h-4 w-4 shrink-0 opacity-70" />
                             <span className="text-sm truncate leading-none pt-0.5">{session.title}</span>
                         </div>
-                        <button
-                            onClick={(e) => handleDelete(e, session.id)}
-                            className={`p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 ${activeSessionId === session.id ? 'opacity-100' : ''
-                                }`}
-                            title="删除对话"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center">
+                            <span className="text-[10px] text-muted-foreground mr-2 font-mono opacity-60 group-hover:opacity-0 transition-opacity absolute right-2">
+                                {formatRelativeTime(session.updatedAt)}
+                            </span>
+                            <button
+                                onClick={(e) => handleDelete(e, session.id)}
+                                className={`p-1.5 rounded-md hover:bg-destructive/10 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 relative z-10 ${activeSessionId === session.id ? 'opacity-100' : ''
+                                    }`}
+                                title="删除对话"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </button>
+                        </div>
                     </div>
                 ))}
             </div>

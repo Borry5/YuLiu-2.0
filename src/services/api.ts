@@ -190,21 +190,21 @@ export async function verifyApiKey(apiKey: string, provider: ApiProviderType): P
 export async function generateSessionTitle(
     apiKey: string,
     provider: ApiProviderType,
-    userContent: string,
-    aiContent: string
+    recentMessages: { role: string, content: string }[]
 ): Promise<string | null> {
     try {
         const config = API_CONFIG[provider];
-        const prompt = `请根据以下用户的输入和 AI 的回答，总结出一个极其简短、凝炼的会话标题。
-要求：
-1. 不超过 10 个字。
-2. 不要加任何标点符号。
-3. 不要包含"关于"、"的讨论"等冗余词汇。
-4. 直接输出标题文本本身，不要其他任何格式。
+        if (!config) return null;
 
-用户输入：${userContent.substring(0, 300)}
-AI回答：${aiContent.substring(0, 300)}
-`;
+        const historyText = recentMessages
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content}`)
+            .join('\n')
+            .substring(0, 1000);
+
+        const prompt = `请用十个字以内概括以下对话的主题。直接输出概括文字，不要标点符号，不要引号，不要任何多余格式。
+
+${historyText}`;
 
         const response = await fetch(config.url, {
             method: 'POST',

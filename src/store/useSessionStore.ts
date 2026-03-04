@@ -17,6 +17,7 @@ interface SessionState {
     deleteSession: (id: string) => void;
     setActiveSession: (id: string) => void;
     updateSessionTitle: (id: string, title: string) => void;
+    touchSession: (id: string) => void;
 }
 
 export const useSessionStore = create<SessionState>()(
@@ -73,6 +74,14 @@ export const useSessionStore = create<SessionState>()(
                 set((state) => ({
                     sessions: state.sessions.map((s) =>
                         s.id === id ? { ...s, title, updatedAt: Date.now() } : s
+                    )
+                }));
+            },
+
+            touchSession: (id) => {
+                set((state) => ({
+                    sessions: state.sessions.map((s) =>
+                        s.id === id ? { ...s, updatedAt: Date.now() } : s
                     )
                 }));
             }
